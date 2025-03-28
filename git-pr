@@ -58,12 +58,13 @@ fi
 
 # Stage and commit changes
 git add -A
+echo
 git commit -S -m "$message"
-echo "code staged and committed"
+echo -n "\ncode staged and committed"
 
 # skip push if flag is set
 if [ "$no_push" = true ]; then
-    echo "no push specified, skipping push"
+    echo -n "\nno push specified, skipping push"
     exit 0
 fi
 
