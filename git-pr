@@ -60,7 +60,7 @@ fi
 git add -A
 echo
 git commit -S -m "$message"
-echo -e "\ncode staged and committed\n"
+echo -e "\ncode staged and committed on branch: ${GREEN}${branch}${RESET}\n"
 
 # skip push if flag is set
 if [ "$no_push" = true ]; then
