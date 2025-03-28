@@ -1,5 +1,11 @@
 #!/bin/bash
 
+# Check if git is installed
+if ! command -v git &> /dev/null; then
+    echo "Error: git is not installed or not in PATH"
+    exit 1
+fi
+
 #colored output
 GREEN=$(tput setaf 2)
 BLUE=$(tput setaf 4)
