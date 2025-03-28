@@ -1,0 +1,80 @@
+#!/bin/bash
+
+#colored output
+GREEN=$(tput setaf 2)
+BLUE=$(tput setaf 4)
+UNDERLINE=$(tput smul)
+RESET=$(tput sgr0)
+
+# Parse command line arguments
+branch=""
+message=""
+no_push=false
+force=false
+
+usage() {
+    echo "Usage: git pr [options]"
+    echo "  -b, --branch BRANCH    New branch name"
+    echo "  -m, --message MESSAGE  Commit message"
+    echo "  -n, --no-push          Skip push"
+    echo "  -f, --force            Force push"
+    exit 1
+}
+
+while [[ "$#" -gt 0 ]]; do
+    case $1 in
+        -b|--branch) branch="$2"; shift ;;
+        -m|--message) message="$2"; shift ;;
+        -n|--no-push) no_push=false; shift ;;
+        -f|--force) force=true ;;
+        *) usage ;;
+    esac
+    shift
+done
+
+# Prompt for missing required options
+if [ -z "$branch" ]; then
+    read -p "New branch name? " branch
+    echo
+fi
+
+if [ -z "$message" ]; then
+    read -p "Commit message? " message
+    echo
+fi
+
+# Check if branch exists
+if git show-ref --quiet refs/heads/"$branch"; then
+    git checkout "$branch"
+else
+    git checkout -b "$branch"
+fi
+
+# Stage and commit changes
+git add -A
+git commit -S -m "$message"
+echo "code staged and committed"
+
+# skip push if flag is set
+if [ "$no_push" = true ]; then
+    echo "no push specified, skipping push"
+    exit 0
+fi
+
+# Push to origin with force if specified
+if [ "$force" = true ]; then
+    git push --force origin "$branch"
+else
+    git push origin "$branch"
+fi
+
+# Get the remote URL and format it for PR creation
+remote_url=$(git remote get-url origin | sed 's/\.git$//')
+if [[ $remote_url == *"@"* ]]; then
+    # Convert SSH URL to HTTPS URL
+    remote_url=$(echo "$remote_url" | sed 's/:/\//' | sed 's/git@/https:\/\//')
+fi
+
+echo -e "\ncommit pushed to origin on branch: ${GREEN}${branch}${RESET}"
+echo "${GREEN}visit ${BLUE}${UNDERLINE}${remote_url}/pull/new/${branch}${RESET}${GREEN} to create a PR${RESET}"
+
