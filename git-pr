@@ -1,4 +1,5 @@
 #!/bin/bash
+set -euo pipefail
 
 # Check if git is installed
 if ! command -v git &> /dev/null; then
@@ -6,9 +7,18 @@ if ! command -v git &> /dev/null; then
     exit 1
 fi
 
-#colored output
+# Check if we're in a git repository
+if ! git rev-parse --is-inside-work-tree &> /dev/null; then
+    echo "Error: not a git repository"
+    exit 1
+fi
+
+# Colored output
+RED=$(tput setaf 1)
 GREEN=$(tput setaf 2)
+YELLOW=$(tput setaf 3)
 BLUE=$(tput setaf 4)
+BOLD=$(tput bold)
 UNDERLINE=$(tput smul)
 RESET=$(tput sgr0)
 
@@ -17,36 +27,76 @@ branch=""
 message=""
 no_push=false
 force=false
+open_pr=true
 
 usage() {
-    echo "Usage: git pr [options]"
-    echo "  -b, --branch BRANCH    New branch name"
-    echo "  -m, --message MESSAGE  Commit message"
-    echo "  -n, --no-push          Skip push"
-    echo "  -f, --force            Force push"
-    exit 1
+    cat <<EOF
+${BOLD}Usage:${RESET} git-pr [options]
+
+Create a branch, commit all changes, push, and get a PR link.
+
+${BOLD}Options:${RESET}
+  -b, --branch BRANCH    Branch name (prompted if not provided)
+  -m, --message MESSAGE  Commit message (prompted if not provided)
+  -n, --no-push          Skip pushing to remote
+  -f, --force            Force push to remote
+  -N, --no-open          Don't open the PR URL in the browser
+  -h, --help             Show this help message
+EOF
+    exit 0
 }
 
 while [[ "$#" -gt 0 ]]; do
     case $1 in
         -b|--branch) branch="$2"; shift ;;
         -m|--message) message="$2"; shift ;;
-        -n|--no-push) no_push=false; shift ;;
+        -n|--no-push) no_push=true ;;
         -f|--force) force=true ;;
-        *) usage ;;
+        -N|--no-open) open_pr=false ;;
+        -h|--help) usage ;;
+        *) echo "Unknown option: $1"; usage ;;
     esac
     shift
 done
 
-# Prompt for missing required options
+# Show current status so user knows what will be committed
+changed_files=$(git status --short)
+if [ -z "$changed_files" ]; then
+    echo "${YELLOW}Warning: no changes detected in working tree${RESET}"
+    echo "Nothing to commit. Exiting."
+    exit 0
+fi
+
+echo "${BOLD}Changes to be committed:${RESET}"
+echo "$changed_files"
+echo
+
+# Prompt for missing required options (with readline editing: arrow keys, Home/End, Ctrl+A/E)
 if [ -z "$branch" ]; then
-    read -p "New branch name? " branch
-    echo
+    read -r -p "${BOLD}Branch name: ${RESET}" branch
+    if [ -z "$branch" ]; then
+        echo "${RED}Error: branch name cannot be empty${RESET}"
+        exit 1
+    fi
+fi
+
+# Validate branch name
+if ! git check-ref-format --allow-onelevel "refs/heads/$branch" 2>/dev/null; then
+    echo "${RED}Error: '$branch' is not a valid branch name${RESET}"
+    exit 1
 fi
 
 if [ -z "$message" ]; then
-    read -p "Commit message? " message
-    echo
+    tmpfile=$(mktemp "${TMPDIR:-/tmp}/git-pr-msg.XXXXXX")
+    trap 'rm -f "$tmpfile"' EXIT
+    editor="${EDITOR:-${VISUAL:-vi}}"
+    echo "# Enter your commit message (lines starting with # are ignored)" > "$tmpfile"
+    "$editor" "$tmpfile"
+    message=$(grep -v '^#' "$tmpfile" | sed '/^$/d' | head -1)
+    if [ -z "$message" ]; then
+        echo "${RED}Error: commit message cannot be empty${RESET}"
+        exit 1
+    fi
 fi
 
 # Check if branch exists
@@ -59,20 +109,31 @@ fi
 # Stage and commit changes
 git add -A
 echo
-git commit -S -m "$message"
-echo -e "\ncode staged and committed on branch: ${GREEN}${branch}${RESET}\n"
+if ! git commit -S -m "$message"; then
+    echo "${RED}Error: commit failed${RESET}"
+    exit 1
+fi
+echo
+echo "Staged and committed on branch: ${GREEN}${branch}${RESET}"
 
-# skip push if flag is set
+# Skip push if flag is set
 if [ "$no_push" = true ]; then
-    echo -e "\nno push specified, skipping push"
+    echo "${YELLOW}--no-push specified, skipping push${RESET}"
     exit 0
 fi
 
-# Push to origin with force if specified
+# Push to origin
+echo
 if [ "$force" = true ]; then
-    git push --force origin "$branch"
+    if ! git push --force origin "$branch"; then
+        echo "${RED}Error: force push failed${RESET}"
+        exit 1
+    fi
 else
-    git push origin "$branch"
+    if ! git push origin "$branch"; then
+        echo "${RED}Error: push failed${RESET}"
+        exit 1
+    fi
 fi
 
 # Get the remote URL and format it for PR creation
@@ -82,6 +143,19 @@ if [[ $remote_url == *"@"* ]]; then
     remote_url=$(echo "$remote_url" | sed 's/:/\//' | sed 's/git@/https:\/\//')
 fi
 
-echo -e "\ncommit pushed to origin on branch: ${GREEN}${branch}${RESET}"
-echo "${GREEN}visit ${BLUE}${UNDERLINE}${remote_url}/pull/new/${branch}${RESET}${GREEN} to create a PR${RESET}"
+pr_url="${remote_url}/pull/new/${branch}"
 
+echo
+echo "Pushed to origin on branch: ${GREEN}${branch}${RESET}"
+echo "Create a PR: ${BLUE}${UNDERLINE}${pr_url}${RESET}"
+
+# Open PR URL in browser if requested
+if [ "$open_pr" = true ]; then
+    if command -v open &> /dev/null; then
+        open "$pr_url"
+    elif command -v xdg-open &> /dev/null; then
+        xdg-open "$pr_url"
+    else
+        echo "${YELLOW}Could not detect browser opener (open/xdg-open)${RESET}"
+    fi
+fi
