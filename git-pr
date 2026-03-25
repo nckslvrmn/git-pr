@@ -143,19 +143,26 @@ if [[ $remote_url == *"@"* ]]; then
     remote_url=$(echo "$remote_url" | sed 's/:/\//' | sed 's/git@/https:\/\//')
 fi
 
-pr_url="${remote_url}/pull/new/${branch}"
-
 echo
 echo "Pushed to origin on branch: ${GREEN}${branch}${RESET}"
-echo "Create a PR: ${BLUE}${UNDERLINE}${pr_url}${RESET}"
 
-# Open PR URL in browser if requested
-if [ "$open_pr" = true ]; then
-    if command -v open &> /dev/null; then
-        open "$pr_url"
-    elif command -v xdg-open &> /dev/null; then
-        xdg-open "$pr_url"
-    else
-        echo "${YELLOW}Could not detect browser opener (open/xdg-open)${RESET}"
+# Determine default branch
+default_branch=$(git symbolic-ref refs/remotes/origin/HEAD 2>/dev/null | sed 's|refs/remotes/origin/||')
+
+if [ "$branch" = "$default_branch" ]; then
+    echo "${YELLOW}Pushed to default branch '$default_branch', skipping PR link${RESET}"
+else
+    pr_url="${remote_url}/pull/new/${branch}"
+    echo "Create a PR: ${BLUE}${UNDERLINE}${pr_url}${RESET}"
+
+    # Open PR URL in browser if requested
+    if [ "$open_pr" = true ]; then
+        if command -v open &> /dev/null; then
+            open "$pr_url"
+        elif command -v xdg-open &> /dev/null; then
+            xdg-open "$pr_url"
+        else
+            echo "${YELLOW}Could not detect browser opener (open/xdg-open)${RESET}"
+        fi
     fi
 fi
